@@ -10,6 +10,7 @@ Groundary 是项目仓库；本仓库是跨项目知识库。项目运行真相�
 |---|---|---|
 | Agent 规则 | [AGENTS.md](./AGENTS.md) | Agent 进入仓库后的工作边界 |
 | 文档治理 | [DOCUMENT_GOVERNANCE.md](./governance/DOCUMENT_GOVERNANCE.md) | 文档分类、状态与历史维护规则 |
+| 知识来源 | [KNOWLEDGE_PROVENANCE_STANDARD.md](./governance/KNOWLEDGE_PROVENANCE_STANDARD.md) | 强制来源字段、继承规则与标准模板 |
 | 安全 | [SECURITY_AND_SECRETS.md](./governance/SECURITY_AND_SECRETS.md) | 敏感信息与 Secret 边界 |
 | 命令速查 | [DEVELOPMENT_CHEATSHEET.md](./reference/DEVELOPMENT_CHEATSHEET.md) | 跨项目工程命令 |
 | 技术术语 | [TECH_GLOSSARY.md](./reference/TECH_GLOSSARY.md) | 跨项目术语表 |
@@ -25,6 +26,7 @@ Groundary 是项目仓库；本仓库是跨项目知识库。项目运行真相�
 ## 基本原则
 
 - 通用知识与项目事实分开保存。
+- 所有知识必须遵守 [Knowledge Provenance Standard](./governance/KNOWLEDGE_PROVENANCE_STANDARD.md)；无来源条目属于阻断问题，不得合入 `main`。
 - 动态事实必须标明状态、来源和最后核验日期。
 - 案例总结不替代源项目的源码、运行文档或治理记录。
 - 提交前执行敏感信息扫描；即使仓库私有，也不得提交 Secret。
