@@ -21,6 +21,7 @@ Groundary 是项目仓库；本仓库是跨项目知识库。项目运行真相�
 | WireGuard 网络 | [WIREGUARD_NETWORKS.md](./infrastructure/WIREGUARD_NETWORKS.md) | VPN 网络摘要 |
 | 核验日志 | [VERIFICATION_LOG.md](./infrastructure/VERIFICATION_LOG.md) | 追加式事实核验历史 |
 | WireGuard Runbook | [PERSONAL_VPN_RUNBOOK.md](./runbooks/wireguard/PERSONAL_VPN_RUNBOOK.md) | 个人 VPN 安全操作骨架 |
+| Ubuntu 服务器 Runbook | [UBUNTU_SERVER_ONBOARDING_RUNBOOK.md](./runbooks/server/UBUNTU_SERVER_ONBOARDING_RUNBOOK.md) | 新服务器首次访问、审计、GitHub SSH 与 Node 主机基线 |
 | Groundary 案例 | [case-studies/groundary/README.md](./case-studies/groundary/README.md) | 可复用项目案例入口 |
 
 ## 基本原则

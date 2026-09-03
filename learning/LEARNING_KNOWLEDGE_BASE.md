@@ -332,6 +332,78 @@ Agent Evaluation 应分别测量 evidence accuracy、calculation accuracy、tool
 
 Golden Case 用于发现职责和代表性行为，不自动是 Ground Truth；清洗后的固定输入和可信预期可成为 Regression Fixture。Mock / fixture 通过只能证明受控测试行为，不能升级为真实 Provider 或生产事实。具体 Groundary 工作流治理演进见 [AI Workflow Governance Case](../case-studies/groundary/AI_WORKFLOW_GOVERNANCE_CASE.md)，问题分解实践见 [Question Decomposition Case](../case-studies/groundary/QUESTION_DECOMPOSITION_CASE.md)。
 
+## 基础设施与持久化的职责分离
+
+### Provenance
+
+- Source scope: 本来源块覆盖“基础设施与持久化的职责分离”下的“Runtime host 与 authoritative persistence”“Development / Production 数据隔离”“Persistence epoch 概念”三个子节的全部正文与列表；不含下方单独的“Fail-closed 数据库配置”章节。
+- Knowledge type: GENERAL
+- Knowledge status: DERIVED
+- Origin project: Groundary
+- Source repository: Groundary — <https://github.com/sanshui894/Groundary>
+- Source document: Source 1 — `docs/AI_PROJECT_CONTEXT.md`; Source 2 — `docs/PRODUCT_STRATEGY.md`; Source 3 — `docs/PROJECT_STRUCTURE.md`
+- Source commit: Sources 1–3 — `6a842bdf070e585676f17f23a5cca49147d5176c`
+- Source section: Source 1 — §2.5 `Data authority and approved persistence direction`; Source 2 — `CURRENT PRINCIPLE — First-public prerequisites`、§10.3 `Persistence implementation sequence P1–P8`; Source 3 — `持久化现状与已批准的抽象方向（规划）`
+- First practiced: 2026-09-03
+- Last verified: 2026-09-03
+- Technical authority: PostgreSQL documentation — https://www.postgresql.org/docs/; backup and restore authority kept deployment-specific
+- Sensitivity: INTERNAL
+- Notes: 从 Groundary 持久化审计与部署规划推导；不含 Groundary 运行标识、数据库 URL、凭据或真实环境值。
+
+### Runtime host 与 authoritative persistence
+
+Application server 与 authoritative database 是两种职责不同的主机：
+
+| 层 | 承载 | 丢失后果 |
+|---|---|---|
+| Application / runtime host | code、runtime、可替换的 logs/cache | 可重建；不承载不可替代业务状态 |
+| Authoritative persistence | 持久化用户/业务状态、backup、restore policy | 丢失即业务损失 |
+
+设计原则：一台被销毁的 application server 应能在不丢失 authoritative data 的前提下重建。判断一项数据放在哪里的标准不是“它由哪个进程写入”，而是“如果这台机器消失，它是否必须还在”。
+
+常见误区：把运行时唯一状态写进应用服务器本地文件，却声称数据库负责持久化；或把应用服务器本地磁盘当成生产数据的权威副本。
+
+### Development / Production 数据隔离
+
+- 不把 production DB 的 raw copy 常规复制到 development 主机。
+- development 与 production 使用分离的 credentials 与 databases。
+- 调试使用 sanitized fixtures 或示例，而不是 production 真实数据。
+- 显式定义 production 访问边界；任何 production 数据访问都应有目的、范围和记录。
+
+为什么：把生产数据复制到开发环境会把生产凭据、真实用户数据和恢复责任扩散到低保护环境；脱敏 fixture 足以复现绝大多数问题。常见误区是把“开发环境也需要真实数据”当作默认假设。
+
+### Persistence epoch 概念
+
+当 legacy / test 数据没有契约价值时，从干净的 persistence epoch 开始可能比迁移过时状态更安全。
+
+必须记录：
+
+- 显式定义 epoch（从何时、哪个环境、哪份 schema 开始）。
+- 不得声称发生过 migration；没有迁移就是没有迁移。
+- backup/restore 责任从 epoch 开始承担，而不是从旧系统的“历史遗留”开始。
+
+为什么：迁移过时、无主、结构不明的数据会把不确定性和安全债务带进新权威存储；对无契约价值的数据，明确定义的起点比“保留一切”更可控。常见误区是把“新建数据库”描述成“已迁移”，或在 epoch 开始前就宣称恢复责任已转移。
+
+## Fail-closed 数据库配置（PLANNED design principle）
+
+### Provenance
+
+- Source scope: 本来源块仅覆盖“Fail-closed 数据库配置（PLANNED design principle）”章节。
+- Knowledge type: GENERAL
+- Knowledge status: PLANNED
+- Origin project: Groundary
+- Source repository: Groundary — <https://github.com/sanshui894/Groundary>
+- Source document: `docs/PRODUCT_STRATEGY.md`; `docs/AI_PROJECT_CONTEXT.md`
+- Source commit: `6a842bdf070e585676f17f23a5cca49147d5176c`
+- Source section: Source 1 — `CURRENT PRINCIPLE — First-public prerequisites`、§10.3 `Persistence implementation sequence P1–P8`; Source 2 — §2.5 `Data authority and approved persistence direction`
+- First practiced: UNKNOWN
+- Last verified: 2026-09-03
+- Technical authority: UNVERIFIED — approved design principle; external authority not yet attached
+- Sensitivity: INTERNAL
+- Notes: 这是 architecture audit 已批准的 design principle / planned pattern，不是已核验的实现；不把代码实现描述为已测试或已上线。
+
+这是设计原则（approved）而非已验证实现：production 环境必须配置为从远端 authoritative database 读取；当远端数据库不可用时，production 绝不静默回退到本地文件持久化。更具体地说，production 配置缺失或指向不明确时应 fail closed，而不是悄悄使用本地 SQLite/file。相应实现仍需在未来验证，不得在此描述为已完成或已测试。
+
 ## Learning Backlog
 
 以下条目来自 Groundary 演进中发现的待学习方向。它们是问题和验证计划，不表示 Groundary 已实现、已选择或已经掌握相应能力。
