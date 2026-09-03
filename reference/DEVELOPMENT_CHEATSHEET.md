@@ -700,9 +700,11 @@ tmux kill-session -t "$SESSION_NAME"
 
 tmux 不是生产服务管理器；生产进程应由项目权威文档指定的正式托管机制管理。
 
-## Codex CLI 更新
+## Codex CLI
 
-### Provenance
+### 更新 Codex CLI
+
+#### Provenance
 
 - Source scope: 本来源块仅覆盖“Codex CLI 更新”全部步骤和说明。
 - Knowledge type: GENERAL
@@ -730,7 +732,7 @@ npm list -g --depth=0
 
 结合安装路径、包管理器记录和原始安装记录判断 Codex 是由独立安装器、npm 还是其他包管理器安装。使用与原安装方式匹配的官方更新方法；其他包管理器应使用其自身的官方流程。
 
-### 独立安装器安装
+#### 独立安装器安装
 
 仅在只读识别确认当前安装来自官方独立安装器后，才使用官方安装器更新。
 
@@ -743,7 +745,7 @@ test "$INSTALL_METHOD" = "standalone-installer" || exit 1
 curl -fsSL https://chatgpt.com/codex/install.sh | sh
 ```
 
-### npm 安装
+#### npm 安装
 
 仅在 `npm list -g --depth=0` 确认当前安装确实由 npm 管理后使用；不默认 `sudo`，也不升级 npm。
 
@@ -766,6 +768,92 @@ npm install -g "${CODEX_CLI_PACKAGE}@latest"
 command -v codex
 codex --version
 ```
+
+### 恢复 Codex CLI 会话
+
+#### Provenance
+
+- Source scope: 本来源块仅覆盖“恢复 Codex CLI 会话”下的“恢复当前目录最近一次会话”“手动选择历史会话”“当前目录与会话目录不一致”“恢复后先检查工作树”全部命令块和说明。
+- Knowledge type: GENERAL
+- Knowledge status: VERIFIED
+- Origin project: personal-engineering-handbook
+- Source repository: OpenAI Developer Documentation (external official documentation) — <https://developers.openai.com/>
+- Source document: https://developers.openai.com/codex/developer-commands#codex-resume
+- Source commit: N/A (non-Git source)
+- Source section: `codex resume`
+- First practiced: 2026-09-02
+- Last verified: 2026-09-02
+- Technical authority: OpenAI Codex Developer Commands — https://developers.openai.com/codex/developer-commands#codex-resume
+- Sensitivity: PUBLIC
+- Notes: `Source commit` 不适用于外部动态官方文档。本方法在 Handbook 迁移修复任务因额度或会话中断后实际使用；未记录会话 ID、项目绝对路径、用户账号、终端输出、对话原文、认证信息或额度数据。
+
+#### 恢复当前目录最近一次会话
+
+先核验需要继续工作的项目目录：
+
+```bash
+PROJECT_DIR="/replace-with-project-directory"
+
+case "$PROJECT_DIR" in
+  *replace-with-*)
+    echo "请先填写 PROJECT_DIR"
+    exit 1
+    ;;
+esac
+
+test -d "$PROJECT_DIR" || {
+  echo "目录不存在：$PROJECT_DIR"
+  exit 1
+}
+
+cd -- "$PROJECT_DIR" || exit 1
+pwd
+```
+
+暂停：确认当前目录就是需要继续工作的项目目录。
+
+```bash
+codex resume --last
+```
+
+`--last` 跳过会话选择器，恢复当前工作目录最近的交互会话，适合因额度、网络或终端中断而需要继续同一任务的情况。恢复后先核对任务名称、工作目录和最近进度；如果恢复了错误会话，使用 `/exit` 退出，不要在错误会话或错误工作目录中继续修改文件。
+
+会话恢复不代表自动恢复尚未写入磁盘的内容、已经退出的 Shell 进程、Shell 环境变量、其他任意工作目录下的最近会话或所有未保存的终端状态。
+
+#### 手动选择历史会话
+
+```bash
+codex resume
+```
+
+不带 `--last` 时会打开交互会话选择器，适合当前目录中存在多个历史会话的情况。选择前核对时间、工作目录、任务名称或会话预览，使用方向键选择目标会话并按 Enter 进入；也可以按官方支持的 session ID 或 session name 指定会话，但不要在共享文档中记录真实 ID。恢复后仍应检查工作树状态。
+
+当前目录中找不到目标会话时，可以扩大选择范围：
+
+```bash
+codex resume --all
+```
+
+`--all` 会把当前工作目录以外的会话也纳入选择范围，并不是“恢复所有会话”。它会扩大候选范围，因此更容易选错；只在当前目录中找不到目标会话时使用，选中后必须重新核对任务与工作目录。
+
+#### 当前目录与会话目录不一致
+
+当当前工作目录与会话保存目录不同时，Codex 可能询问使用当前目录还是原会话目录。选择前确认哪个目录包含需要继续的工作树；显式目录选择和实际工作树状态优先于聊天名称，不要因为会话标题相同就假设当前目录正确。
+
+不熟悉配置时，不建议仅为了省略提示而修改 `tui.resume_cwd`；应明确选择目录并核验实际工作树。
+
+#### 恢复后先检查工作树
+
+```bash
+pwd
+git status --short
+git diff --check
+git diff --cached --name-only
+```
+
+已经写入磁盘的工作树修改通常独立于聊天会话是否中断。恢复会话后先核验当前目录、Git 状态、未暂存差异和暂存区；如果看到预期之外的文件，停止并检查。“会话恢复成功”不等于“工作树状态已经正确”。
+
+不要因为会话中断就立即运行 `restore`、`reset`、`checkout` 或 `clean`。不确定当前进度时，先要求 Codex 只读恢复现场；不能假定所有修改绝不会丢失，也不能假定恢复会话一定能恢复全部现场。
 
 ## Secret 卫生与 SQLite 只读检查
 
