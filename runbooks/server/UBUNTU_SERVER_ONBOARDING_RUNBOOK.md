@@ -2,11 +2,11 @@
 
 **Status:** `CURRENT`
 
-本 Runbook 沉淀从个人运维实践中验证的通用操作：从 Windows 首次 SSH 连接 Ubuntu 服务器、终端剪贴板与信号行为、fresh Ubuntu server 审计、从 application server 配置 GitHub SSH access，以及 Node application host 基线核验。每条事实均已脱敏；所有可填写值必须先用 `replace-with-*` 惰性占位符替换并核验，未替换时命令应安全退出。
+本 Runbook 沉淀从个人运维实践中验证的通用操作：从 Windows 首次 SSH 连接 Ubuntu 服务器、终端剪贴板与信号行为、fresh Ubuntu server 审计、从 application server 配置 GitHub SSH access、Node application host 基线核验，以及 PostgreSQL production operational baseline。每条事实均已脱敏；所有可填写值必须先用 `replace-with-*` 惰性占位符替换并核验，未替换时命令应安全退出。
 
 ### Provenance
 
-- Source scope: 本来源块覆盖本文件全部章节（“Windows → Ubuntu SSH 首次连接”“终端剪贴板与信号行为”“Fresh Ubuntu server 审计清单”“GitHub SSH access from application server”“Node application host baseline”“安全边界”）。
+- Source scope: 本来源块覆盖“Windows → Ubuntu SSH 首次连接”“终端剪贴板与信号行为”“Fresh Ubuntu server 审计清单”“GitHub SSH access from application server”“Node application host baseline”“安全边界”；不覆盖下方具有独立来源块的 PostgreSQL 章节。
 - Knowledge type: GENERAL
 - Knowledge status: DERIVED
 - Origin project: Groundary
@@ -124,6 +124,54 @@
 - 基线不等于运行态：安装了 Node/npm/PM2/Nginx、clone 了仓库、`npm install` 通过，都还不等于应用已启动、`.env` 已配置或已达到 production-ready。
 
 未核验事项必须明确标注：例如“PM2 boot startup / systemd 配置仍需要显式核验”，不得因为 PM2 daemon 存在就宣称开机自启已完成。
+
+## PostgreSQL production operational baseline
+
+### Provenance
+
+- Source scope: 本来源块覆盖“PostgreSQL production operational baseline”全部步骤、示例、验证矩阵与权限要求。
+- Knowledge type: GENERAL
+- Knowledge status: DERIVED
+- Origin project: Groundary
+- Source repository: Groundary — <https://github.com/sanshui894/Groundary>
+- Source document: Source 1 — `docs/AI_PROJECT_CONTEXT.md`; Source 2 — `docs/WEEKLY_PROJECT_REPORT.md`
+- Source commit: Sources 1–2 — `330d447082840508041304e125afdea98170ba1b`
+- Source section: Source 1 — `VERIFIED CURRENT — P7 PRODUCTION PERSISTENCE`; Source 2 — `State Milestone（2026-09-04 追加：P7 Production PostgreSQL Provisioning + Persistence Epoch）`
+- First practiced: 2026-09-04
+- Last verified: 2026-09-04
+- Technical authority: PostgreSQL Client Authentication — https://www.postgresql.org/docs/current/client-authentication.html; PostgreSQL Backup and Restore — https://www.postgresql.org/docs/current/backup.html
+- Sensitivity: INTERNAL
+- Notes: 操作模式来自脱敏后的已验证实践；示例不包含真实网络、数据库、角色、连接串、凭据或 dump 路径。
+
+1. 在 cloud firewall/security group 中，只允许明确的 application sources 访问 database port；不要把数据库端口普遍开放到互联网。
+2. 在 `pg_hba.conf` 中按 database、role、source 收敛授权：
+
+   ```text
+   host replace-with-database replace-with-role replace-with-authorized-source/32 scram-sha-256
+   ```
+
+   不长期使用外部来源的 `host all all ...`。localhost 的 `host all all` 规则不等于公网暴露，但仍应按本机用途审阅。
+3. reload PostgreSQL 配置后做正负验证，而不只做成功路径：
+
+   | 验证 | 预期 |
+   |---|---|
+   | authorized app → authorized DB | PASS |
+   | production role → development DB | EXPECTED REJECT |
+   | development role → production DB | EXPECTED REJECT |
+
+4. 对连接 TLS 逐层记录证据。`sslmode=require` 只要求传输加密，不能写成服务器身份已验证；需要证书链和 hostname identity verification 时使用 proper certificates 与 `sslmode=verify-full`。
+5. 创建 custom-format backup，并验证 archive 可读性：
+
+   ```bash
+   pg_dump -Fc --dbname="$DATABASE_CONNECTION" --file="$BACKUP_FILE"
+   pg_restore --list "$BACKUP_FILE"
+   ```
+
+   `$DATABASE_CONNECTION` 和 `$BACKUP_FILE` 必须在受控 shell 中设置，不输出连接凭据。文件存在或命令退出成功都不替代 restore drill。
+6. Restore drill 使用安全链路：production DB → custom dump → isolated restore-test DB → verify schema → verify schema version → verify representative data/counts → cleanup restore-test DB。不得直接向 production DB 恢复测试。
+7. backup directory 设置为 owner `postgres`、mode `700`；backup artifact 设置为 owner `postgres`、mode `600`。dump 按潜在敏感用户数据处理。
+8. 本地 dump 与 restore drill 只能证明局部可恢复性。真实生产数据开始积累后，增加独立 off-host/object storage，并验证 retention、访问控制和恢复路径；不得把 raw dump 放进 Git、复制成普通开发 fixture 或常态化同步到开发机。
+9. 若数据库字段依赖独立 credential encryption key，备份计划必须同时覆盖 key continuity，但 key 与 database backup 必须分离保存。
 
 ## 安全边界
 

@@ -502,17 +502,17 @@ POST 可能修改服务状态；先确认健康检查输出、隔离环境和测
 
 - Source scope: 本来源块仅覆盖“Codex CLI 更新”全部表格行与说明。
 - Knowledge type: GENERAL
-- Knowledge status: VERIFIED
+- Knowledge status: DERIVED
 - Origin project: Groundary
-- Source repository: Groundary — <https://github.com/sanshui894/Groundary>
-- Source document: `docs/DEVELOPMENT_CHEATSHEET.md`
-- Source commit: `f3da01e331f5f2ecf7ce509c2deb0972e890548a`
-- Source section: `Codex CLI 更新`
+- Source repository: Source 1 — Groundary — <https://github.com/sanshui894/Groundary>; Source 2 — OpenAI Codex documentation — <https://developers.openai.com/codex/cli>
+- Source document: Source 1 — `docs/DEVELOPMENT_CHEATSHEET.md`; Source 2 — https://developers.openai.com/codex/cli
+- Source commit: Source 1 — `f3da01e331f5f2ecf7ce509c2deb0972e890548a`; Source 2 — N/A (non-Git source)
+- Source section: Source 1 — `Codex CLI 更新`; Source 2 — `Get started with Codex CLI` → `Install Codex` npm installation option
 - First practiced: UNKNOWN
-- Last verified: 2026-09-02
+- Last verified: 2026-09-04
 - Technical authority: OpenAI Codex CLI documentation — https://developers.openai.com/codex/cli
 - Sensitivity: PUBLIC
-- Notes: 包身份保持为用户变量；更新前确认实际安装方式。
+- Notes: Source 1 supports the pre-update inspection workflow; Source 2 establishes the official npm package identity. The system-wide `/usr/lib/node_modules` permission behavior and npm package-version syntax are package-manager-derived. Other installation sources must use their own update mechanism. Updating the CLI and updating npm itself are separate operations.
 </details>
 
 | 命令/字段 | 含义 | 看到什么算正常 | 怎么用/注意事项 |
@@ -520,8 +520,12 @@ POST 可能修改服务状态；先确认健康检查输出、隔离环境和测
 | `command -v codex` | 定位 codex 可执行文件 | 输出路径 | 识别安装方式 |
 | `codex --version` | 查看当前版本 | 输出版本号 | 更新前后对比 |
 | `npm list -g --depth=0` | 查看全局 npm 包 | 确认是否 npm 管理 | 判断是否 npm-global 安装 |
+| `sudo npm install -g @openai/codex@latest` | 更新 system-wide npm 安装的 Codex CLI 到最新版 | 安装成功，随后版本核验符合预期 | 仅在确认包位于 `/usr/lib/node_modules` 且普通用户无写权限时使用 `sudo` |
+| `sudo npm install -g @openai/codex@<version>` | 安装指定 Codex CLI 版本 | 安装成功，`codex --version` 显示目标版本 | 把 `<version>` 替换为明确版本；同样只适用于 system-wide npm 安装 |
 
-按安装来源更新：先用 `command -v codex`、`codex --version`、`npm list -g --depth=0` 判断当前安装来源，再使用与原安装方式匹配的官方更新方法：独立安装器用官方更新脚本，npm 安装用对应 npm 包的官方更新命令。如果 Codex 由 Homebrew 或其他包管理器安装，应使用对应安装来源的官方更新方式。不虚构统一更新命令、不默认 `sudo`，也不升级 npm。
+按安装来源更新：先运行 `command -v codex`、`codex --version`、`npm list -g --depth=0`。若确认 `@openai/codex` 是安装在 `/usr/lib/node_modules` 的 system-wide npm package，普通用户通常没有写权限，因此使用上表的 `sudo npm install -g` 命令；完成后再次运行 `codex --version`。Homebrew、独立安装器或其他来源应使用对应的官方更新方式。
+
+Updating Codex CLI != updating npm itself。npm 提示自身存在新版本时，不代表更新 Codex 必须运行 `npm install -g npm@...`；npm 自身升级应作为独立维护决定。
 
 ### 恢复会话
 

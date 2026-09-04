@@ -384,25 +384,61 @@ Application server 与 authoritative database 是两种职责不同的主机：
 
 为什么：迁移过时、无主、结构不明的数据会把不确定性和安全债务带进新权威存储；对无契约价值的数据，明确定义的起点比“保留一切”更可控。常见误区是把“新建数据库”描述成“已迁移”，或在 epoch 开始前就宣称恢复责任已转移。
 
-## Fail-closed 数据库配置（PLANNED design principle）
+## PostgreSQL production persistence baseline
 
 ### Provenance
 
-- Source scope: 本来源块仅覆盖“Fail-closed 数据库配置（PLANNED design principle）”章节。
+- Source scope: 本来源块覆盖“PostgreSQL production persistence baseline”下的全部正文、规则示例与验证矩阵。
 - Knowledge type: GENERAL
-- Knowledge status: PLANNED
+- Knowledge status: DERIVED
 - Origin project: Groundary
 - Source repository: Groundary — <https://github.com/sanshui894/Groundary>
-- Source document: `docs/PRODUCT_STRATEGY.md`; `docs/AI_PROJECT_CONTEXT.md`
-- Source commit: `6a842bdf070e585676f17f23a5cca49147d5176c`
-- Source section: Source 1 — `CURRENT PRINCIPLE — First-public prerequisites`、§10.3 `Persistence implementation sequence P1–P8`; Source 2 — §2.5 `Data authority and approved persistence direction`
-- First practiced: UNKNOWN
-- Last verified: 2026-09-03
-- Technical authority: UNVERIFIED — approved design principle; external authority not yet attached
+- Source document: Source 1 — `docs/AI_PROJECT_CONTEXT.md`; Source 2 — `docs/WEEKLY_PROJECT_REPORT.md`; Source 3 — `backend/config/env.js`; Source 4 — `asin-proxy/server.js`
+- Source commit: Sources 1–4 — `330d447082840508041304e125afdea98170ba1b`
+- Source section: Source 1 — `VERIFIED CURRENT — P7 PRODUCTION PERSISTENCE` and §2.5 persistence rules; Source 2 — `State Milestone（2026-09-04 追加：P7 Production PostgreSQL Provisioning + Persistence Epoch）`; Source 3 — `buildDatabaseConfig`; Source 4 — startup composition before HTTP listen
+- First practiced: 2026-09-04
+- Last verified: 2026-09-04
+- Technical authority: PostgreSQL Client Authentication — https://www.postgresql.org/docs/current/client-authentication.html; PostgreSQL SSL Support — https://www.postgresql.org/docs/current/libpq-ssl.html; PostgreSQL Backup and Restore — https://www.postgresql.org/docs/current/backup.html
 - Sensitivity: INTERNAL
-- Notes: 这是 architecture audit 已批准的 design principle / planned pattern，不是已核验的实现；不把代码实现描述为已测试或已上线。
+- Notes: 从已完成的受限生产验证、实现边界与 PostgreSQL 官方文档提炼。仅保留跨项目模式；主机、地址、端口、数据库名、角色名、连接串、凭据、生产数据及项目运行状态均被排除。
 
-这是设计原则（approved）而非已验证实现：production 环境必须配置为从远端 authoritative database 读取；当远端数据库不可用时，production 绝不静默回退到本地文件持久化。更具体地说，production 配置缺失或指向不明确时应 fail closed，而不是悄悄使用本地 SQLite/file。相应实现仍需在未来验证，不得在此描述为已完成或已测试。
+生产系统应明确区分三类职责：Application Host 是可替换 runtime；PostgreSQL Host 是 authoritative persistence；Source/Git 只保存 source 与 schema，不保存用户或运行时数据。销毁并重建应用主机不应导致 authoritative data 丢失，Dev/Test/Prod 的数据库与凭据也必须彼此隔离。生产数据不得依赖 application-server local disk，也不应把 raw production copy 常态化复制到开发环境。
+
+### Production fail-closed
+
+生产配置应显式选择 PostgreSQL。数据库 provider、连接配置或其他必需项缺失/非法时，应用必须 startup failure；不能静默 fallback 到 SQLite 或本地文件。数据库初始化和 schema compatibility 检查必须先成功，HTTP server 才能开始 listen。变量名可因项目而异，关键是环境契约、初始化顺序和失败行为可测试。
+
+### Least privilege 与 network boundary
+
+外部来源的 `pg_hba.conf` 规则应收敛到具体 database、role 和单一授权来源，例如：
+
+```text
+host replace-with-database replace-with-role replace-with-authorized-source/32 scram-sha-256
+```
+
+不要长期保留 `host all all replace-with-external-source ...`。开发应用账号只访问开发/测试数据库，生产应用账号只访问生产数据库。localhost 的 `host all all` 规则只作用于本机匹配流量，本身不等于数据库已向公网暴露。
+
+访问控制应同时存在于两层：cloud firewall/security group 把 database port 限制到明确的 application sources；`pg_hba.conf` 再约束 database、role、source 和认证方法。不能只依赖其中一层。至少执行一组正负验证：
+
+| 验证 | 预期 |
+|---|---|
+| authorized app role → authorized DB | PASS |
+| production role → development DB | EXPECTED REJECT |
+| development role → production DB | EXPECTED REJECT |
+
+### TLS 边界
+
+`sslmode=require` 要求 transport encryption，但不完成服务器证书与 hostname identity 的完整验证；`sslmode=verify-full` 同时要求加密、可信证书链和 hostname identity verification。因此 `require != verify-full`。在边界明确的 MVP 初期，`require` 可以作为 bounded baseline；高要求生产环境应配置 proper certificates 并考虑 `verify-full`。
+
+### Backup、restore 与 recovery system
+
+PostgreSQL 的最低逻辑备份基线可使用 custom format（`pg_dump -Fc`）。备份验证不能停在“文件存在”：先用 `pg_restore --list` 检查 archive 可读性，再把 production dump 恢复到 isolated restore-test database，依次验证 schema、schema version、代表性数据/行数，最后清理 restore-test database。不要直接对 production database 做 restore drill；成功的隔离恢复演练才是 backup validity 的关键证据。
+
+生产 dump 未来可能包含敏感用户数据，最低权限基线为：backup directory 由 `postgres` 拥有且 mode `700`；backup artifact 由 `postgres` 拥有且 mode `600`。
+
+local dump + restore drill 不等于 disaster-resistant backup。真实 production data 开始积累后，应把受控副本保存到独立的 off-host/object storage（如 S3、COS、OSS 类服务），并为 retention、加密、访问控制和恢复演练负责。raw production dump 不进入 Git、不常态化复制到开发机，也不作为普通开发 fixture。
+
+如果数据库中保存由独立 encryption key 保护的 credential ciphertext，那么 database backup 与 credential encryption key 属于同一 recovery system：缺少任一方都可能无法恢复业务数据。但 key 必须与数据库 backup 分离保存，避免一次边界失守同时暴露密文和解密能力。
 
 ## Learning Backlog
 
