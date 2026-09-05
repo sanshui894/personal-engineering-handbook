@@ -600,6 +600,74 @@ git diff --cached --name-only
 
 tmux 只用于交互式/临时的长任务；生产服务仍用 PM2 / systemd 托管，不靠 tmux 保活。
 
+## WireGuard 新增 Peer Checklist
+
+<details>
+<summary>来源与验证状态</summary>
+
+- Source scope: 本来源块仅覆盖“WireGuard 新增 Peer Checklist”小节的流程、命令示例与常见错误；不覆盖本文件其他章节。
+- Knowledge type: GENERAL
+- Knowledge status: VERIFIED
+- Origin project: N/A (not project-derived) — 来自个人服务器运维实践（2026-09-05 真实维护：新增办公电脑与 iPad 两个客户端 Peer）
+- Source repository: personal-engineering-handbook — <https://github.com/sanshui894/personal-engineering-handbook>
+- Source document: `runbooks/wireguard/PERSONAL_VPN_RUNBOOK.md`
+- Source commit: `6bdd80f9e5ffa479f9b98da368081481bee7f26d`
+- Source section: `新增 Peer 流程（2026-09-05 现场验证）`; `常见错误`
+- First practiced: 2026-09-05
+- Last verified: 2026-09-05
+- Technical authority: WireGuard 官方文档 — https://www.wireguard.com/; WireGuard Quick Start — https://www.wireguard.com/quickstart/; wg(8) 与 wg-quick(8) man pages
+- Sensitivity: INTERNAL
+- Notes: 本小节是速查入口，完整流程、边界与排错见 `runbooks/wireguard/PERSONAL_VPN_RUNBOOK.md`；示例只用惰性占位符，未替换时命令应安全退出，不允许拼成可用凭据。
+</details>
+
+速查入口：详细流程见 [PERSONAL_VPN_RUNBOOK.md](../../runbooks/wireguard/PERSONAL_VPN_RUNBOOK.md)。核心一句话：**密钥只在各自本机生成，双方只互换公钥**——服务端保存客户端 PublicKey，客户端保存服务端 PublicKey。示例变量先替换再执行。
+
+```bash
+# 1. 客户端生成 Key Pair（管道第一段=私钥本地留存，第二段=公钥；私钥绝不外发）
+wg genkey | tee /path/privatekey-replace-with-client-name | wg pubkey
+chmod 600 /path/privatekey-replace-with-client-name
+```
+
+```ini
+# 2. 服务端 /etc/wireguard/wg0.conf 追加 [Peer]（只填客户端公钥与唯一地址）
+[Peer]
+PublicKey = replace-with-client-public-key
+AllowedIPs = replace-with-client-vpn-address/32
+```
+
+```bash
+# 3. 重载 WireGuard（优先无损 syncconf；必要时才 restart）
+sudo wg syncconf wg0 <(wg-quick strip wg0)
+# sudo systemctl restart wg-quick@wg0
+sudo wg show wg0   # 确认新 Peer 出现
+```
+
+```ini
+# 4. 客户端配置（客户端保存服务端公钥）
+[Interface]
+PrivateKey = replace-with-client-private-key
+Address = replace-with-client-vpn-address/32
+
+[Peer]
+PublicKey = replace-with-server-public-key
+Endpoint = replace-with-server-public-address:replace-with-wireguard-listen-port
+AllowedIPs = 0.0.0.0/0    # 全隧道；仅需访问服务器/内网时收敛为对应子网
+PersistentKeepalive = 25  # 客户端位于 NAT 后时建议
+```
+
+```bash
+# 5. 验证握手与流量（服务端）
+sudo wg show wg0           # latest handshake 出现并随时间更新
+sudo wg show wg0 transfer  # transfer 计数增长
+# 客户端 ping 隧道地址，再验证出口连通
+```
+
+**常见错误：服务端 Peer 误填客户端 PrivateKey**
+
+- 现象：Peer 存在、AllowedIPs 正常，但 `latest handshake` 持续为空、无握手。
+- 原因：WireGuard 中公钥才是身份；服务端 `[Peer]` 只认客户端公钥，私钥从不参与互认。
+- 正确：服务端保存 `Client PublicKey`，客户端保存 `Server PublicKey`；公钥方向放反同样无法握手。
+
 ## 维护规则
 
 只加入会重复使用的字段、命令、正常结果和最短用法；一次性流程、阶段记录、架构说明和测试报告放到其他项目文档。
