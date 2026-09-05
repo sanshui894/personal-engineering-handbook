@@ -600,73 +600,96 @@ git diff --cached --name-only
 
 tmux 只用于交互式/临时的长任务；生产服务仍用 PM2 / systemd 托管，不靠 tmux 保活。
 
-## WireGuard 新增 Peer Checklist
+## WireGuard
 
 <details>
 <summary>来源与验证状态</summary>
 
-- Source scope: 本来源块仅覆盖“WireGuard 新增 Peer Checklist”小节的流程、命令示例与常见错误；不覆盖本文件其他章节。
+- Source scope: 本来源块覆盖“WireGuard”小节的服务管理/修改流程表格、修改顺序命令块、“新增 Peer”与客户端配置命令块、验证与“常见错误”全部内容；不覆盖本文件其他章节。
 - Knowledge type: GENERAL
 - Knowledge status: VERIFIED
 - Origin project: N/A (not project-derived) — 来自个人服务器运维实践（2026-09-05 真实维护：新增办公电脑与 iPad 两个客户端 Peer）
 - Source repository: personal-engineering-handbook — <https://github.com/sanshui894/personal-engineering-handbook>
 - Source document: `runbooks/wireguard/PERSONAL_VPN_RUNBOOK.md`
 - Source commit: `6bdd80f9e5ffa479f9b98da368081481bee7f26d`
-- Source section: `新增 Peer 流程（2026-09-05 现场验证）`; `常见错误`
+- Source section: `服务管理`; `新增 Peer 流程（2026-09-05 现场验证）`; `常见错误`
 - First practiced: 2026-09-05
 - Last verified: 2026-09-05
 - Technical authority: WireGuard 官方文档 — https://www.wireguard.com/; WireGuard Quick Start — https://www.wireguard.com/quickstart/; wg(8) 与 wg-quick(8) man pages
 - Sensitivity: INTERNAL
-- Notes: 本小节是速查入口，完整流程、边界与排错见 `runbooks/wireguard/PERSONAL_VPN_RUNBOOK.md`；示例只用惰性占位符，未替换时命令应安全退出，不允许拼成可用凭据。
+- Notes: 本小节是速查入口，完整流程、边界与排错见 [PERSONAL_VPN_RUNBOOK.md](../../runbooks/wireguard/PERSONAL_VPN_RUNBOOK.md)；示例只用 `replace-with-*` 占位符，未替换时命令应安全退出，不允许拼成可用凭据。
 </details>
 
-速查入口：详细流程见 [PERSONAL_VPN_RUNBOOK.md](../../runbooks/wireguard/PERSONAL_VPN_RUNBOOK.md)。核心一句话：**密钥只在各自本机生成，双方只互换公钥**——服务端保存客户端 PublicKey，客户端保存服务端 PublicKey。示例变量先替换再执行。
+示例中的 `replace-with-*` 值需先替换并核验；restart 等状态变更命令执行前先只读执行 `sudo wg show wg0` 确认当前 Peer。
+
+| 命令/字段 | 含义 | 看到什么算正常 | 怎么用/注意事项 |
+|---|---|---|---|
+| `/etc/wireguard/wg0.conf` | 服务端接口配置的唯一事实来源 | 文件名与接口名一致（`wg-quick@<接口>`） | 服务端 Peer 的新增/修改/删除都改这里；修改后必须 reload/restart 才生效 |
+| `sudo nano /etc/wireguard/wg0.conf` | 编辑服务端配置 | 保存退出编辑器 | 内容只含客户端公钥与分配地址的占位符替换值，不写任何私钥 |
+| `sudo wg show wg0` | 查看接口与每个 Peer 状态 | 目标 Peer 的 `latest handshake` 有值 | 握手与流量才是链路证据；`systemd active` 不代表链路可用 |
+| `sudo wg show wg0 transfer` | 查看 Peer 双向流量计数 | transfer 随使用增长 | 与 `latest handshake` 一起判断 |
+| `sudo wg syncconf wg0 <(wg-quick strip wg0)` | 无损应用 `wg0.conf` 的新配置 | 无报错，既有 Peer 不掉线 | 修改配置后优先使用 |
+| `sudo systemctl restart wg-quick@wg0` | 重启 WireGuard 服务 | 回到 `active (running)` | 会打断全部既有 Peer；仅在必要时执行 |
+| `systemctl status wg-quick@wg0` | 检查服务状态 | `active (running)` | active 只说明 unit 已拉起接口，不证明握手正常 |
+
+修改 Peer 的最短顺序（改配置 → 查看 → 重启 → 检查，逐条核验后再执行下一条）：
 
 ```bash
-# 1. 客户端生成 Key Pair（管道第一段=私钥本地留存，第二段=公钥；私钥绝不外发）
-wg genkey | tee /path/privatekey-replace-with-client-name | wg pubkey
-chmod 600 /path/privatekey-replace-with-client-name
+sudo nano /etc/wireguard/wg0.conf         # 修改 /etc/wireguard/wg0.conf
+sudo wg show wg0                          # 修改前先记录当前 Peer 与 handshake
+sudo systemctl restart wg-quick@wg0       # 让配置生效（必要时）
+systemctl status wg-quick@wg0             # 检查服务状态
+sudo wg show wg0                          # 确认新配置已生效
 ```
 
-```ini
-# 2. 服务端 /etc/wireguard/wg0.conf 追加 [Peer]（只填客户端公钥与唯一地址）
-[Peer]
-PublicKey = replace-with-client-public-key
-AllowedIPs = replace-with-client-vpn-address/32
-```
+### 新增 Peer
+
+1. 客户端生成独立密钥对：管道第一段输出是客户端私钥（本地留存、绝不外发，包括服务端），第二段是客户端公钥。
+
+   ```bash
+   wg genkey | tee /path/privatekey-replace-with-client-name | wg pubkey
+   chmod 600 /path/privatekey-replace-with-client-name
+   ```
+
+2. 服务端 `/etc/wireguard/wg0.conf` 追加 `[Peer]`，只填客户端公钥与唯一 VPN 地址。
+
+   ```ini
+   [Peer]
+   PublicKey = replace-with-client-public-key
+   AllowedIPs = replace-with-client-vpn-address/32
+   ```
+
+3. 客户端配置：客户端 `[Peer]` 保存服务端公钥与 Endpoint，两端地址必须一致（`replace-with-client-vpn-address`）。
+
+   ```ini
+   [Interface]
+   PrivateKey = replace-with-client-private-key
+   Address = replace-with-client-vpn-address/32
+
+   [Peer]
+   PublicKey = replace-with-server-public-key
+   Endpoint = replace-with-server-public-address:replace-with-wireguard-listen-port
+   AllowedIPs = 0.0.0.0/0    # 全隧道；仅需访问服务器/内网时收敛为对应子网
+   PersistentKeepalive = 25  # 客户端位于 NAT 后时建议
+   ```
+
+4. 按上方"修改 Peer 的最短顺序"重载服务端（优先 `syncconf` 无损应用），再连接验证。
+
+### 验证
 
 ```bash
-# 3. 重载 WireGuard（优先无损 syncconf；必要时才 restart）
-sudo wg syncconf wg0 <(wg-quick strip wg0)
-# sudo systemctl restart wg-quick@wg0
-sudo wg show wg0   # 确认新 Peer 出现
-```
-
-```ini
-# 4. 客户端配置（客户端保存服务端公钥）
-[Interface]
-PrivateKey = replace-with-client-private-key
-Address = replace-with-client-vpn-address/32
-
-[Peer]
-PublicKey = replace-with-server-public-key
-Endpoint = replace-with-server-public-address:replace-with-wireguard-listen-port
-AllowedIPs = 0.0.0.0/0    # 全隧道；仅需访问服务器/内网时收敛为对应子网
-PersistentKeepalive = 25  # 客户端位于 NAT 后时建议
-```
-
-```bash
-# 5. 验证握手与流量（服务端）
 sudo wg show wg0           # latest handshake 出现并随时间更新
 sudo wg show wg0 transfer  # transfer 计数增长
-# 客户端 ping 隧道地址，再验证出口连通
 ```
 
-**常见错误：服务端 Peer 误填客户端 PrivateKey**
+新 Peer 出现 → `latest handshake` 非空且持续更新 → `transfer` 增长；再从客户端 `ping` 隧道地址并验证出口连通。不把任何密钥正文复制进文档。
 
-- 现象：Peer 存在、AllowedIPs 正常，但 `latest handshake` 持续为空、无握手。
-- 原因：WireGuard 中公钥才是身份；服务端 `[Peer]` 只认客户端公钥，私钥从不参与互认。
-- 正确：服务端保存 `Client PublicKey`，客户端保存 `Server PublicKey`；公钥方向放反同样无法握手。
+### 常见错误
+
+- **服务端 `[Peer]` 误填客户端 PrivateKey**：Peer 存在、AllowedIPs 正常，但 `latest handshake` 持续为空。服务端只保存客户端 **PublicKey**，私钥从不参与互认。
+- **PrivateKey/PublicKey 填反**：服务端保存 `Client PublicKey`、客户端保存 `Server PublicKey`，放反无法握手。
+- 两端 `AllowedIPs` 与 `Address` 不一致，或同一 VPN 地址分配给多个 Peer。
+- 把含私钥的客户端配置发到明文渠道、截图或提交仓库；私钥只在各自本机。
 
 ## 维护规则
 
