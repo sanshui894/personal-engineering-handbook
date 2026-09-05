@@ -440,6 +440,100 @@ local dump + restore drill 不等于 disaster-resistant backup。真实 producti
 
 如果数据库中保存由独立 encryption key 保护的 credential ciphertext，那么 database backup 与 credential encryption key 属于同一 recovery system：缺少任一方都可能无法恢复业务数据。但 key 必须与数据库 backup 分离保存，避免一次边界失守同时暴露密文和解密能力。
 
+## WireGuard 与个人 VPN 认识
+
+### Provenance
+
+- Source scope: 本来源块覆盖"WireGuard 与个人 VPN 认识"下从"VPS 与 VPN 的定位"到"常见误区"的全部正文与表格。
+- Knowledge type: GENERAL
+- Knowledge status: VERIFIED
+- Origin project: N/A (not project-derived) — 来自个人服务器运维实践整理，不属于任何软件项目
+- Source repository: N/A (non-Git source) — 一手证据是用户 2026-09-05 现场执行的 WireGuard 节点维护（新增客户端 Peer）与对 Peer/PublicKey/PrivateKey 关系的核验
+- Source document: N/A (non-Git source)
+- Source commit: N/A (non-Git source)
+- Source section: 维护过程中核验的密钥关系与握手结果；概念解释与 WireGuard 官方文档逐项对照
+- First practiced: 2026-09-05
+- Last verified: 2026-09-05
+- Technical authority: WireGuard 官方文档 — https://www.wireguard.com/; WireGuard Quick Start — https://www.wireguard.com/quickstart/; WireGuard whitepaper — https://www.wireguard.com/papers/wireguard.pdf; wg(8) 与 wg-quick(8) man pages; systemd.service — https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html
+- Sensitivity: PUBLIC
+- Notes: 全部内容为通用概念，不含任何真实地址、网段、主机名、公钥或私钥；密钥关系来自 2026-09-05 维护现场验证并与官方文档一致。具体操作步骤见 [Personal VPN Runbook](../runbooks/wireguard/PERSONAL_VPN_RUNBOOK.md)。
+
+### VPS 与 VPN 的定位
+
+VPS（Virtual Private Server）是一台你拥有操作系统控制权的云端虚拟机，提供公网入口与运行服务的主机资源；VPN（Virtual Private Network）是通过公网在设备之间建立加密隧道的网络技术，本身不是一种服务器类型。
+
+两者常常一起出现，但职责不同：
+
+- VPS 是"能在上面跑服务的主机"，VPN Server 只是运行在它上面的一个服务。
+- VPN 解决的是"通信如何加密、设备如何组成一个私有网络"，与主机是否云端无关。
+- 常见误区是把"买了一台 VPS"等同于"已经有了 VPN"，或把 VPN 当成某种加密代理软件而忽略它首先是网络层隧道。
+
+### WireGuard 的工作方式
+
+WireGuard 是一种以简单为设计目标的现代 VPN 协议与实现，模型只有两个概念：接口（Interface）与对端（Peer）。
+
+- 每个 WireGuard 接口（如 `wg0`）有自己的密钥对，并监听一个 UDP 端口；接口收到数据包时用公钥判断来源，用私钥解密与自己相关的流量。
+- 每个 Peer 由一组信息描述：对端的公钥、`AllowedIPs`（从本端角度看该 Peer 可达的地址范围）、可选 `Endpoint`（如何联系该 Peer）与可选 `PersistentKeepalive`。
+- `AllowedIPs` 同时充当加密密钥路由：发往某 Peer `AllowedIPs` 范围内地址的数据会被加密发给该 Peer；反向则校验来源公钥。它既是路由表也是访问边界。
+- 连接是"按需握手"的：空闲时不维持常连，需要通信时才建立握手；位于 NAT 后的设备靠 `PersistentKeepalive` 主动保活。
+- 配置通过 `wg-quick`（systemd 单元 `wg-quick@<接口>`）应用到内核接口，`/etc/wireguard/<接口>.conf` 是配置唯一事实来源。
+
+WireGuard 没有用户名/密码/证书体系：**密钥对本身就是身份**。因此两端配置里公钥方向、`AllowedIPs` 与地址的一致性直接决定能否建立连接，这也是它出错时最典型的检查点。
+
+### PublicKey / PrivateKey 双向关系
+
+每个参与方都有一对密钥：私钥只在本机生成并保留，公钥由私钥推导、可以交给对端。握手能成功，证明双方各自持有"自己的私钥"和"对方的公钥"，且配对正确。
+
+| 密钥 | 在哪里生成 | 保存在哪里 | 是否对外 |
+|---|---|---|---|
+| 服务端私钥 | 服务端本机 | 服务端 `/etc/wireguard/` | 永不离开服务端 |
+| 服务端公钥 | 服务端（由私钥推导） | 服务端 + 每个客户端配置的 `[Peer]` | 可交给客户端 |
+| 客户端私钥 | 客户端本机 | 客户端本机 | 永不发送给任何人 |
+| 客户端公钥 | 客户端（由私钥推导） | 客户端 + 服务端 `wg0.conf` 的 `[Peer]` | 可交给服务端 |
+
+对应关系要分开理解：
+
+- 服务端用**客户端公钥**识别并加密发往该客户端的数据，因此服务端的每个 `[Peer]` 里存的是客户端公钥。
+- 客户端用**服务端公钥**验证并加密发往服务端的数据，因此客户端配置的 `[Peer]` 里存的是服务端公钥。
+- 整个过程中没有任何私钥在网络上传输；所谓"互换密钥"其实是互换公钥、各自保留私钥。公钥方向放反、公钥与私钥不配对、或公钥粘贴带入多余空白，都会让 `latest handshake` 永远不出现。
+
+### Peer 是身份，推荐一个设备一个 Peer
+
+在服务端视角，一个 Peer 就是一个身份条目：一个公钥 + 允许的地址范围（+ 可选 Endpoint）。同一个密钥对复制到多台设备，就等于让多台设备共享同一个身份。
+
+因此推荐"一个设备一个 Peer、每台设备独立密钥"：
+
+- 便于单独撤销与轮换：撤销一个 Peer 不影响其他设备。
+- 便于归属与排障：从握手与流量能对应到具体设备。
+- 避免身份耦合：一台设备被攻破不会让其他设备暴露在同一身份下。
+
+共享同一份 Peer 配置（含私钥）会造成多设备同身份、同地址，服务端无法区分来源，且无法单独管理。
+
+### 为什么不要共享 PrivateKey 或复用同一份客户端配置
+
+- **冒充风险**：私钥是身份的证明，复制私钥等于允许任何拿到它的人冒充该设备，而服务端无从区分。
+- **撤销粒度丧失**：撤销一个共享身份会同时断开所有共享它的设备。
+- **地址与路由冲突**：同一 Peer 的同一 `AllowedIPs` 被多台设备使用会互相干扰，流量去向不可预期。
+- **归属与审计失效**：出现异常流量时无法定位是哪个设备、哪个位置产生的。
+- **完整客户端配置含私钥**：配置文件和它的二维码都包含设备私钥，截图、明文聊天传输或提交仓库等于直接泄露身份。
+
+### systemd service 与应用进程的区别
+
+`wg-quick@wg0` 是 systemd 服务单元，驱动 `wg-quick` 把 `/etc/wireguard/wg0.conf` 应用到内核并配置路由与防火墙规则。它属于"操作系统托管服务"，与应用进程是两种不同的运行方式：
+
+- systemd 负责开机顺序与依赖、开机自启（enable）、崩溃/重启处理、统一的状态查询（`systemctl status`）与日志（`journalctl`）。
+- 手动前台运行或在普通进程管理器（如 PM2）里托管的进程，默认不处理"重启机器后是否自动恢复"；PM2 daemon 存在也不等于开机自启，这一点与 systemd unit 的 enable 语义不同。
+- 接口状态、配置文件和 systemd 三方必须分开核验：`systemctl active` 只说明单元已拉起接口；`wg show` 反映内核当前状态；两者都与 `wg0.conf` 可能短暂不一致。
+- 对应用进程通常还要管业务健康；对 `wg-quick@wg0` 则要再看 `latest handshake` 与流量，active 不等于链路可用。
+
+### 常见误区
+
+- 把公钥放反，或把服务端 `[Peer]` 填成服务端自己的公钥。
+- 认为私钥"传一下没关系"，或把完整客户端配置/二维码截图、明文转发。
+- 认为多个设备可以共用一份配置；配置含私钥与固定地址，共享受限。
+- 用 `systemctl status` 的 active 代替握手核验；用文件存在代替配置已生效（改配置后不 reload）。
+- 把 `qrencode` 当配置生成器：它只编码已有输入，不生成身份。
+
 ## Learning Backlog
 
 以下条目来自 Groundary 演进中发现的待学习方向。它们是问题和验证计划，不表示 Groundary 已实现、已选择或已经掌握相应能力。
